@@ -1,0 +1,9 @@
+{
+  "addr": "127.0.0.1:9876",
+  "interval": "1s",
+  "mode": "auto",
+  "history_size": 120,
+  "log_level": "info",
+  "log_format": "json",
+  "metrics_namespace": "trainpulse"
+}

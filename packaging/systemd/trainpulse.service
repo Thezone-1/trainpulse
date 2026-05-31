@@ -1,0 +1,14 @@
+[Unit]
+Description=TrainPulse AI training diagnostics daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/trainpulse daemon -addr 127.0.0.1:9876 -mode auto -interval 1s
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

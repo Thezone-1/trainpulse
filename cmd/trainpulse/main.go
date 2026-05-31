@@ -15,6 +15,7 @@ import (
 	"github.com/somoprovo/trainpulse/internal/collector"
 	"github.com/somoprovo/trainpulse/internal/config"
 	"github.com/somoprovo/trainpulse/internal/dashboard"
+	"github.com/somoprovo/trainpulse/internal/logging"
 )
 
 func main() {
@@ -45,13 +46,14 @@ func run(command string, cfg config.Config) error {
 func runDaemon(cfg config.Config) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	logger := logging.New(cfg, os.Stdout)
 	col := chooseCollector(cfg)
 	a := agent.New(cfg, col)
-	server := &http.Server{Addr: cfg.Addr, Handler: api.New(a).Handler(), ReadHeaderTimeout: 2 * time.Second}
+	server := &http.Server{Addr: cfg.Addr, Handler: api.New(a, cfg).Handler(), ReadHeaderTimeout: 2 * time.Second}
 	errc := make(chan error, 2)
 	go func() { errc <- a.Run(ctx) }()
 	go func() { errc <- server.ListenAndServe() }()
-	fmt.Printf("trainpulse daemon listening on http://%s using %s collector\n", cfg.Addr, col.Name())
+	logger.Info("daemon_started", "addr", cfg.Addr, "collector", col.Name(), "mode", cfg.Mode)
 	err := <-errc
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -59,6 +61,7 @@ func runDaemon(cfg config.Config) error {
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}
+	logger.Error("daemon_stopped", "error", err)
 	return err
 }
 
@@ -66,6 +69,7 @@ func runTop(cfg config.Config) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	col := chooseCollector(cfg)
+	logging.New(cfg, os.Stderr).Debug("top_started", "collector", col.Name())
 	a := agent.New(cfg, col)
 	errc := make(chan error, 1)
 	go func() { errc <- a.Run(ctx) }()

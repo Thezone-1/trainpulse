@@ -27,6 +27,9 @@ type Agent struct {
 	mu       sync.RWMutex
 	snapshot model.Snapshot
 	count    int64
+
+	trainingMu     sync.RWMutex
+	latestTraining *model.TrainingSample
 }
 
 func New(cfg config.Config, col collector.Collector) *Agent {
@@ -65,10 +68,22 @@ func (a *Agent) Snapshot() model.Snapshot {
 	return a.snapshot
 }
 
+func (a *Agent) UpdateTraining(sample model.TrainingSample) {
+	if sample.Timestamp.IsZero() {
+		sample.Timestamp = time.Now()
+	}
+	a.trainingMu.Lock()
+	a.latestTraining = &sample
+	a.trainingMu.Unlock()
+}
+
 func (a *Agent) Tick(ctx context.Context) error {
 	frame, err := a.collector.Collect(ctx)
 	if err != nil {
 		return err
+	}
+	if frame.Training == nil {
+		frame.Training = a.recentTraining()
 	}
 	a.window.Add(frame)
 	frames := a.window.Frames()
@@ -89,4 +104,14 @@ func (a *Agent) Tick(ctx context.Context) error {
 	a.snapshot = snap
 	a.mu.Unlock()
 	return nil
+}
+
+func (a *Agent) recentTraining() *model.TrainingSample {
+	a.trainingMu.RLock()
+	defer a.trainingMu.RUnlock()
+	if a.latestTraining == nil || time.Since(a.latestTraining.Timestamp) > 30*time.Second {
+		return nil
+	}
+	sample := *a.latestTraining
+	return &sample
 }

@@ -24,13 +24,49 @@ type HostSample struct {
 }
 
 type TrainingSample struct {
-	StepTimeMS float64   `json:"step_time_ms"`
-	Throughput float64   `json:"throughput"`
-	DataWaitMS float64   `json:"data_wait_ms"`
-	SyncWaitMS float64   `json:"sync_wait_ms"`
-	BatchSize  int       `json:"batch_size"`
-	GlobalStep int64     `json:"global_step"`
-	Timestamp  time.Time `json:"timestamp"`
+	WorkloadKind string `json:"workload_kind,omitempty"`
+	ModelFamily  string `json:"model_family,omitempty"`
+	ModelName    string `json:"model_name,omitempty"`
+	Framework    string `json:"framework,omitempty"`
+	Precision    string `json:"precision,omitempty"`
+
+	StepTimeMS     float64 `json:"step_time_ms"`
+	Throughput     float64 `json:"throughput"`
+	TokensPerSec   float64 `json:"tokens_per_sec"`
+	MFU            float64 `json:"mfu"`
+	TFLOPs         float64 `json:"tflops"`
+	MemBandwidth   float64 `json:"mem_bandwidth_util"`
+	AvgSeqLen      float64 `json:"avg_seq_len"`
+	MaxSeqLen      int     `json:"max_seq_len"`
+	BatchSize      int     `json:"batch_size"`
+	MicroBatchSize int     `json:"micro_batch_size,omitempty"`
+	GradAccumSteps int     `json:"grad_accum_steps,omitempty"`
+	GlobalStep     int64   `json:"global_step"`
+
+	DataWaitMS       float64 `json:"data_wait_ms"`
+	TokenizerWaitMS  float64 `json:"tokenizer_wait_ms,omitempty"`
+	SyncWaitMS       float64 `json:"sync_wait_ms"`
+	AllReduceWaitMS  float64 `json:"all_reduce_wait_ms,omitempty"`
+	PipelineBubbleMS float64 `json:"pipeline_bubble_ms,omitempty"`
+	CheckpointMS     float64 `json:"checkpoint_ms,omitempty"`
+
+	WorldSize          int          `json:"world_size,omitempty"`
+	TensorParallelSize int          `json:"tensor_parallel_size,omitempty"`
+	PipelineStages     int          `json:"pipeline_stages,omitempty"`
+	DataParallelSize   int          `json:"data_parallel_size,omitempty"`
+	Ranks              []RankSample `json:"ranks,omitempty"`
+
+	Timestamp time.Time `json:"timestamp"`
+}
+
+type RankSample struct {
+	Rank         int     `json:"rank"`
+	Node         string  `json:"node,omitempty"`
+	GPUIndex     int     `json:"gpu_index,omitempty"`
+	StepTimeMS   float64 `json:"step_time_ms"`
+	TokensPerSec float64 `json:"tokens_per_sec"`
+	DataWaitMS   float64 `json:"data_wait_ms,omitempty"`
+	SyncWaitMS   float64 `json:"sync_wait_ms,omitempty"`
 }
 
 type TelemetryFrame struct {

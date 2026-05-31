@@ -19,8 +19,16 @@ func Render(w io.Writer, snap model.Snapshot) {
 	}
 	if snap.Telemetry.Training != nil {
 		tr := snap.Telemetry.Training
-		fmt.Fprintf(w, "\nTraining step=%d step_time=%.1fms throughput=%.1f data_wait=%.1fms sync_wait=%.1fms batch=%d\n",
-			tr.GlobalStep, tr.StepTimeMS, tr.Throughput, tr.DataWaitMS, tr.SyncWaitMS, tr.BatchSize)
+		modelLabel := tr.ModelName
+		if modelLabel == "" {
+			modelLabel = tr.WorkloadKind
+		}
+		fmt.Fprintf(w, "\nTraining %s step=%d step_time=%.1fms batch=%d\n",
+			modelLabel, tr.GlobalStep, tr.StepTimeMS, tr.BatchSize)
+		fmt.Fprintf(w, "  throughput=%.1f examples/s tokens=%.0f/s mfu=%.1f%% tflops=%.1f seq=%.0f/%d\n",
+			tr.Throughput, tr.TokensPerSec, tr.MFU*100, tr.TFLOPs, tr.AvgSeqLen, tr.MaxSeqLen)
+		fmt.Fprintf(w, "  waits data=%.1fms tokenizer=%.1fms sync=%.1fms allreduce=%.1fms checkpoint=%.1fms bubble=%.1fms\n",
+			tr.DataWaitMS, tr.TokenizerWaitMS, tr.SyncWaitMS, tr.AllReduceWaitMS, tr.CheckpointMS, tr.PipelineBubbleMS)
 	}
 	if len(snap.Signals) == 0 {
 		fmt.Fprintln(w, "\nSignals: none")

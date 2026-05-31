@@ -58,3 +58,18 @@ func AvgStepMS(frames []model.TelemetryFrame) float64 {
 	}
 	return sum / float64(count)
 }
+
+func AvgTokensPerSec(frames []model.TelemetryFrame) float64 {
+	var sum float64
+	var count int
+	for _, f := range frames {
+		if f.Training != nil && f.Training.TokensPerSec > 0 {
+			sum += f.Training.TokensPerSec
+			count++
+		}
+	}
+	if count == 0 {
+		return 0
+	}
+	return sum / float64(count)
+}

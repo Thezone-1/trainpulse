@@ -52,5 +52,53 @@ func (i *Inferer) Infer(signals []model.Signal) []model.Diagnosis {
 			Actions:     []string{"Check interconnect counters", "Tune bucket sizes", "Verify compute and communication overlap"},
 		})
 	}
+	if _, ok := names["low_mfu"]; ok {
+		out = append(out, model.Diagnosis{
+			RootCause:   "llm_compute_efficiency_loss",
+			Confidence:  0.76,
+			Explanation: "Token throughput exists, but model FLOPs utilization is low for the observed training step.",
+			Actions:     []string{"Check kernel fusion and precision mode", "Review sequence packing efficiency", "Compare achieved TFLOPs with expected hardware peak"},
+		})
+	}
+	if _, ok := names["tokenizer_bottleneck"]; ok {
+		out = append(out, model.Diagnosis{
+			RootCause:   "tokenization_or_packing_bottleneck",
+			Confidence:  0.80,
+			Explanation: "The LLM input path is spending too much time tokenizing, packing, or preparing batches.",
+			Actions:     []string{"Pre-tokenize the dataset", "Increase preprocessing workers", "Inspect packing and shuffling latency"},
+		})
+	}
+	if _, ok := names["allreduce_bottleneck"]; ok {
+		out = append(out, model.Diagnosis{
+			RootCause:   "distributed_gradient_communication",
+			Confidence:  0.78,
+			Explanation: "Gradient synchronization is taking enough time to reduce useful training throughput.",
+			Actions:     []string{"Inspect NCCL logs and fabric counters", "Tune gradient bucket size", "Validate topology-aware rank placement"},
+		})
+	}
+	if _, ok := names["rank_straggler"]; ok {
+		out = append(out, model.Diagnosis{
+			RootCause:   "rank_straggler",
+			Confidence:  0.77,
+			Explanation: "A slow rank can force every other rank to wait at synchronization points.",
+			Actions:     []string{"Compare per-rank dataloader and step timing", "Check node-local thermal or network issues", "Inspect uneven sequence lengths per rank"},
+		})
+	}
+	if _, ok := names["excessive_padding"]; ok {
+		out = append(out, model.Diagnosis{
+			RootCause:   "sequence_packing_inefficiency",
+			Confidence:  0.73,
+			Explanation: "The job is spending compute on padding tokens rather than useful sequence tokens.",
+			Actions:     []string{"Use length bucketing", "Improve packed sequence construction", "Track useful tokens versus padded tokens"},
+		})
+	}
+	if _, ok := names["checkpoint_stall"]; ok {
+		out = append(out, model.Diagnosis{
+			RootCause:   "checkpoint_io_stall",
+			Confidence:  0.70,
+			Explanation: "Checkpoint writes are large enough to interrupt normal training cadence.",
+			Actions:     []string{"Checkpoint asynchronously", "Increase checkpoint interval", "Inspect filesystem and object-store latency"},
+		})
+	}
 	return out
 }

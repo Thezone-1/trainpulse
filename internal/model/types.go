@@ -100,6 +100,36 @@ type Diagnosis struct {
 	Actions     []string `json:"actions"`
 }
 
+// Recommendation is one concrete tuning action the optimizer derived from
+// live telemetry. AutoApplicable marks parameters a cooperating training loop
+// (e.g. via the Python client's Tuner) can change mid-run without affecting
+// convergence semantics; everything else needs a human decision.
+type Recommendation struct {
+	ID             string   `json:"id"`
+	Category       string   `json:"category"`
+	Parameter      string   `json:"parameter,omitempty"`
+	Current        string   `json:"current,omitempty"`
+	Suggested      string   `json:"suggested,omitempty"`
+	Impact         string   `json:"impact"`
+	Confidence     float64  `json:"confidence"`
+	Rationale      string   `json:"rationale"`
+	Evidence       []string `json:"evidence,omitempty"`
+	AutoApplicable bool     `json:"auto_applicable"`
+}
+
+// ClusterUtilization summarizes how much of the available hardware the
+// training job is actually converting into useful work right now.
+type ClusterUtilization struct {
+	GPUCount          int     `json:"gpu_count"`
+	GPUUtilAvg        float64 `json:"gpu_util_avg"`
+	GPUUtilMin        float64 `json:"gpu_util_min"`
+	GPUMemUsedRatio   float64 `json:"gpu_mem_used_ratio"`
+	MFU               float64 `json:"mfu,omitempty"`
+	ComputeWastePct   float64 `json:"compute_waste_pct"`
+	MemoryHeadroomPct float64 `json:"memory_headroom_pct"`
+	EfficiencyScore   float64 `json:"efficiency_score"`
+}
+
 type Snapshot struct {
 	Timestamp   time.Time      `json:"timestamp"`
 	Health      float64        `json:"health"`
@@ -108,6 +138,9 @@ type Snapshot struct {
 	Signals     []Signal       `json:"signals"`
 	Diagnoses   []Diagnosis    `json:"diagnoses"`
 	SampleCount int64          `json:"sample_count"`
+
+	Utilization     *ClusterUtilization `json:"utilization,omitempty"`
+	Recommendations []Recommendation    `json:"recommendations,omitempty"`
 
 	// Collector identifies the telemetry source that produced this snapshot.
 	// When a fallback is active this changes (e.g. "sim"), so consumers can

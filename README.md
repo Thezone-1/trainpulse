@@ -111,6 +111,59 @@ curl -X POST 'http://127.0.0.1:9876/v1/framework?name=deepspeed' \
 
 Supported adapter names today: `generic`, `pytorch`, `deepspeed`, `megatron`, `huggingface`.
 
+## Resource optimization
+
+TrainPulse continuously scores how much of the cluster's compute and memory
+the job actually uses, and recommends concrete knobs to reclaim the rest:
+
+```sh
+curl http://127.0.0.1:9876/v1/recommendations
+```
+
+```json
+{
+  "utilization": {
+    "gpu_count": 8, "gpu_util_avg": 71.0, "gpu_mem_used_ratio": 0.42,
+    "compute_waste_pct": 29.0, "memory_headroom_pct": 58.0,
+    "mfu": 0.31, "efficiency_score": 64.3
+  },
+  "recommendations": [
+    {
+      "id": "grow_micro_batch", "category": "memory",
+      "parameter": "micro_batch_size", "current": "4", "suggested": "8",
+      "impact": "Raise arithmetic intensity per step; typically the cheapest MFU gain available",
+      "confidence": 0.72, "auto_applicable": false
+    }
+  ]
+}
+```
+
+Recommendations cover memory (batch growth into headroom, activation
+checkpointing under pressure), compute (sequence packing, pipeline bubbles,
+load imbalance), data (dataloader workers, pre-tokenization), and
+communication (gradient sync frequency, stragglers). Each carries
+`auto_applicable`: convergence-neutral knobs a training loop may apply
+automatically via the Python client's `Tuner`; everything else is advisory,
+because an external daemon must not silently change training semantics.
+Utilization also ships as metrics (`trainpulse_cluster_efficiency_score`,
+`trainpulse_cluster_compute_waste_percent`, `trainpulse_recommendation_active`)
+and in the `top` dashboard.
+
+## Python client
+
+`clients/python` ships a zero-dependency package (see its README):
+
+```python
+from trainpulse import TrainPulseClient, Tuner
+
+tp = TrainPulseClient()
+with tp.step(global_step=step, tokens=batch_tokens):   # times + reports the step
+    loss = train_step(batch)
+
+tuner = Tuner(tp)
+num_workers = tuner.suggested("dataloader_workers", current=num_workers)
+```
+
 ## Commands
 
 - `daemon`: collect continuously and expose `/healthz` and `/v1/snapshot`.

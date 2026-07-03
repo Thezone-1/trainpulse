@@ -48,6 +48,25 @@ func Render(w io.Writer, snap model.Snapshot) {
 			fmt.Fprintf(w, "    %s\n", diagnosis.Explanation)
 		}
 	}
+	if u := snap.Utilization; u != nil {
+		fmt.Fprintf(w, "\nUtilization: efficiency=%.0f/100 gpu_avg=%.0f%% mem_used=%.0f%% waste=%.0f%% headroom=%.0f%%\n",
+			u.EfficiencyScore, u.GPUUtilAvg, u.GPUMemUsedRatio*100, u.ComputeWastePct, u.MemoryHeadroomPct)
+	}
+	if len(snap.Recommendations) > 0 {
+		fmt.Fprintln(w, "Optimize:")
+		for _, rec := range snap.Recommendations {
+			knob := ""
+			if rec.Parameter != "" {
+				knob = " " + rec.Parameter
+				if rec.Current != "" && rec.Suggested != "" {
+					knob += fmt.Sprintf(" %s->%s", rec.Current, rec.Suggested)
+				} else if rec.Suggested != "" {
+					knob += ": " + rec.Suggested
+				}
+			}
+			fmt.Fprintf(w, "  [%s]%s — %s\n", rec.Category, knob, rec.Impact)
+		}
+	}
 }
 
 func clear(w io.Writer) {

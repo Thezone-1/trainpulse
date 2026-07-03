@@ -14,6 +14,7 @@ import (
 	"github.com/somoprovo/trainpulse/internal/health"
 	"github.com/somoprovo/trainpulse/internal/knowledge"
 	"github.com/somoprovo/trainpulse/internal/model"
+	"github.com/somoprovo/trainpulse/internal/optimizer"
 	"github.com/somoprovo/trainpulse/internal/stream"
 )
 
@@ -30,6 +31,7 @@ type Agent struct {
 	correlator *correlate.Correlator
 	scorer     *health.Scorer
 	inferer    *diagnostics.Inferer
+	optimizer  *optimizer.Engine
 
 	mu            sync.RWMutex
 	snapshot      model.Snapshot
@@ -57,6 +59,7 @@ func New(cfg config.Config, col collector.Collector) *Agent {
 		correlator: correlate.New(),
 		scorer:     health.New(),
 		inferer:    diagnostics.NewWithBase(knowledge.New(cfg.Diagnoses)),
+		optimizer:  optimizer.New(),
 	}
 }
 
@@ -151,21 +154,25 @@ func (a *Agent) Tick(ctx context.Context) error {
 	signals := a.correlator.Correlate(a.anomaly.Detect(frames))
 	score, status := a.scorer.Score(signals)
 	diagnoses := a.inferer.Infer(signals)
+	utilization := a.optimizer.Utilization(frames)
+	recommendations := a.optimizer.Recommend(frames, signals)
 	collectorName := a.collector.Name()
 	a.mu.Lock()
 	a.count++
 	a.snapshot = model.Snapshot{
-		Timestamp:     frame.Timestamp,
-		Health:        score,
-		Status:        status,
-		Telemetry:     frame,
-		Signals:       signals,
-		Diagnoses:     diagnoses,
-		SampleCount:   a.count,
-		Collector:     collectorName,
-		Simulated:     collectorName == "sim",
-		CollectErrors: a.collectErrors,
-		LastError:     a.lastError,
+		Timestamp:       frame.Timestamp,
+		Health:          score,
+		Status:          status,
+		Telemetry:       frame,
+		Signals:         signals,
+		Diagnoses:       diagnoses,
+		Utilization:     utilization,
+		Recommendations: recommendations,
+		SampleCount:     a.count,
+		Collector:       collectorName,
+		Simulated:       collectorName == "sim",
+		CollectErrors:   a.collectErrors,
+		LastError:       a.lastError,
 	}
 	a.mu.Unlock()
 	return nil

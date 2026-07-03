@@ -27,6 +27,15 @@ func JSONPoints(snap model.Snapshot, namespace string) []Point {
 		{Metric: ns + ".signals_active", Value: float64(len(snap.Signals)), Type: "gauge"},
 		{Metric: ns + ".collect_errors_total", Value: float64(snap.CollectErrors), Type: "counter"},
 		{Metric: ns + ".simulated", Value: boolValue(snap.Simulated), Type: "gauge", Tags: collectorTags(snap.Collector)},
+		{Metric: ns + ".recommendations_active", Value: float64(len(snap.Recommendations)), Type: "gauge"},
+	}
+	if u := snap.Utilization; u != nil {
+		points = append(points,
+			Point{Metric: ns + ".cluster.efficiency_score", Value: u.EfficiencyScore, Type: "gauge"},
+			Point{Metric: ns + ".cluster.gpu_util_avg", Value: u.GPUUtilAvg, Type: "gauge"},
+			Point{Metric: ns + ".cluster.memory_used_ratio", Value: u.GPUMemUsedRatio, Type: "gauge"},
+			Point{Metric: ns + ".cluster.compute_waste_percent", Value: u.ComputeWastePct, Type: "gauge"},
+		)
 	}
 	if tr := snap.Telemetry.Training; tr != nil {
 		tags := map[string]string{
@@ -128,6 +137,19 @@ func WritePrometheus(w io.Writer, snap model.Snapshot, namespace string) error {
 	p.add(ns+"_signals_active", "Active diagnostic signals.", "gauge", float64(len(snap.Signals)), nil)
 	p.add(ns+"_collect_errors_total", "Telemetry collection failures.", "counter", float64(snap.CollectErrors), nil)
 	p.add(ns+"_simulated", "1 when telemetry comes from the simulator instead of real hardware.", "gauge", boolValue(snap.Simulated), collectorTags(snap.Collector))
+	p.add(ns+"_recommendations_active", "Active optimization recommendations.", "gauge", float64(len(snap.Recommendations)), nil)
+	if u := snap.Utilization; u != nil {
+		p.add(ns+"_cluster_efficiency_score", "Composite resource-utilization score, 0 to 100.", "gauge", u.EfficiencyScore, nil)
+		p.add(ns+"_cluster_gpu_util_avg", "Average GPU utilization across the cluster.", "gauge", u.GPUUtilAvg, nil)
+		p.add(ns+"_cluster_memory_used_ratio", "Aggregate GPU memory used ratio.", "gauge", u.GPUMemUsedRatio, nil)
+		p.add(ns+"_cluster_compute_waste_percent", "Idle GPU compute as a percentage.", "gauge", u.ComputeWastePct, nil)
+	}
+	for _, rec := range snap.Recommendations {
+		p.add(ns+"_recommendation_active", "Active recommendation by id and category.", "gauge", 1, map[string]string{
+			"id":       rec.ID,
+			"category": rec.Category,
+		})
+	}
 	if tr := snap.Telemetry.Training; tr != nil {
 		labels := map[string]string{
 			"workload_kind": tr.WorkloadKind,

@@ -47,6 +47,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/events", s.auth(s.events))
 	mux.HandleFunc("/v1/integrations", s.auth(s.integrations))
 	mux.HandleFunc("/v1/snapshot", s.auth(s.snapshot))
+	mux.HandleFunc("/v1/recommendations", s.auth(s.recommendations))
 	mux.HandleFunc("/v1/version", s.version)
 	mux.HandleFunc("/v1/training", s.auth(s.training))
 	mux.HandleFunc("/v1/framework", s.auth(s.framework))
@@ -88,6 +89,22 @@ func (s *Server) version(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) snapshot(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(s.agent.Snapshot())
+}
+
+// recommendations serves the optimizer's live view: cluster utilization plus
+// the tuning actions that would raise it. Kept separate from /v1/snapshot so
+// tooling (and the Python Tuner) can poll it cheaply.
+func (s *Server) recommendations(w http.ResponseWriter, _ *http.Request) {
+	snap := s.agent.Snapshot()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"timestamp":       snap.Timestamp,
+		"utilization":     snap.Utilization,
+		"recommendations": snap.Recommendations,
+		"health":          snap.Health,
+		"status":          snap.Status,
+		"simulated":       snap.Simulated,
+	})
 }
 
 func (s *Server) prometheus(w http.ResponseWriter, _ *http.Request) {

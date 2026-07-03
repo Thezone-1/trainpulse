@@ -108,4 +108,12 @@ type Snapshot struct {
 	Signals     []Signal       `json:"signals"`
 	Diagnoses   []Diagnosis    `json:"diagnoses"`
 	SampleCount int64          `json:"sample_count"`
+
+	// Collector identifies the telemetry source that produced this snapshot.
+	// When a fallback is active this changes (e.g. "sim"), so consumers can
+	// tell simulated data from real hardware telemetry.
+	Collector     string `json:"collector,omitempty"`
+	Simulated     bool   `json:"simulated,omitempty"`
+	CollectErrors int64  `json:"collect_errors,omitempty"`
+	LastError     string `json:"last_error,omitempty"`
 }

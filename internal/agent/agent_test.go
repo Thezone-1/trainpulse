@@ -70,6 +70,92 @@ func TestTickMergesFreshRuntimeTrainingSample(t *testing.T) {
 	}
 }
 
+func TestTickRunsConfiguredRules(t *testing.T) {
+	now := time.Now()
+	a := New(config.Config{
+		Interval:    time.Second,
+		HistorySize: 8,
+		Rules: []config.Rule{
+			{Name: "team_tokens_slo", Field: "training.tokens_per_sec", Operator: "lt", Value: 50000, Severity: "warning", ScoreImpact: 9},
+		},
+	}, staticCollector{
+		frame: model.TelemetryFrame{
+			Timestamp: now,
+			GPUs:      []model.GPUSample{{Index: 0, Utilization: 80, MemoryUsed: 1000, MemoryTotal: 2000, Timestamp: now}},
+			Training:  &model.TrainingSample{TokensPerSec: 42000, Timestamp: now},
+		},
+	})
+	if err := a.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !hasSignal(a.Snapshot().Signals, "team_tokens_slo") {
+		t.Fatalf("expected configured rule signal, got %+v", a.Snapshot().Signals)
+	}
+}
+
+func TestTickRecordsCollectorFailureWithoutLosingSnapshot(t *testing.T) {
+	now := time.Now()
+	col := &flakyCollector{
+		frame: model.TelemetryFrame{
+			Timestamp: now,
+			GPUs:      []model.GPUSample{{Index: 0, Utilization: 80, MemoryUsed: 1000, MemoryTotal: 2000, Timestamp: now}},
+		},
+	}
+	a := New(config.Config{Interval: time.Second, HistorySize: 8}, col)
+	if err := a.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	col.fail = true
+	if err := a.Tick(context.Background()); err == nil {
+		t.Fatal("expected collect error")
+	}
+	snap := a.Snapshot()
+	if snap.SampleCount != 1 {
+		t.Fatalf("failed tick must not drop the last good snapshot, got count %d", snap.SampleCount)
+	}
+	if snap.CollectErrors != 1 || snap.LastError == "" {
+		t.Fatalf("expected recorded collect failure, got %+v", snap)
+	}
+	if len(snap.Telemetry.GPUs) != 1 {
+		t.Fatal("last good telemetry should still be served")
+	}
+}
+
+func TestSnapshotMarksSimulatedCollector(t *testing.T) {
+	a := New(config.Config{Interval: time.Second, HistorySize: 8}, namedCollector{name: "sim"})
+	if err := a.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	snap := a.Snapshot()
+	if snap.Collector != "sim" || !snap.Simulated {
+		t.Fatalf("expected simulated provenance, got collector=%q simulated=%v", snap.Collector, snap.Simulated)
+	}
+}
+
+type flakyCollector struct {
+	frame model.TelemetryFrame
+	fail  bool
+}
+
+func (f *flakyCollector) Name() string { return "flaky" }
+
+func (f *flakyCollector) Collect(context.Context) (model.TelemetryFrame, error) {
+	if f.fail {
+		return model.TelemetryFrame{}, context.DeadlineExceeded
+	}
+	return f.frame, nil
+}
+
+type namedCollector struct {
+	name string
+}
+
+func (n namedCollector) Name() string { return n.name }
+
+func (n namedCollector) Collect(context.Context) (model.TelemetryFrame, error) {
+	return model.TelemetryFrame{Timestamp: time.Now()}, nil
+}
+
 type staticCollector struct {
 	frame model.TelemetryFrame
 }

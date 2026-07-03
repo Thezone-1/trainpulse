@@ -53,11 +53,12 @@ func TestTrainingIngestion(t *testing.T) {
 
 func TestMetricsEndpoints(t *testing.T) {
 	a := agent.New(config.Config{Interval: time.Second, HistorySize: 4}, noTrainingCollector{})
+	a.UpdateTraining(model.TrainingSample{TokensPerSec: 1000, MFU: 0.10})
 	if err := a.Tick(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	server := New(a, config.Config{MetricsNamespace: "trainpulse_test"})
-	for _, path := range []string{"/metrics", "/v1/metrics"} {
+	for _, path := range []string{"/metrics", "/v1/metrics", "/v1/events", "/v1/events?format=ndjson", "/v1/integrations"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
 		server.Handler().ServeHTTP(rec, req)
@@ -86,6 +87,53 @@ func TestFrameworkIngestion(t *testing.T) {
 	tr := a.Snapshot().Telemetry.Training
 	if tr == nil || tr.ModelName != "llama-ds" || tr.TokensPerSec != 12345 {
 		t.Fatalf("expected normalized framework sample, got %+v", tr)
+	}
+}
+
+func TestAuthTokenEnforced(t *testing.T) {
+	a := agent.New(config.Config{Interval: time.Second, HistorySize: 4}, noTrainingCollector{})
+	server := New(a, config.Config{AuthToken: "secret-token"})
+	handler := server.Handler()
+
+	// /healthz stays open for liveness probes.
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("healthz should not require auth, got %d", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/snapshot", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without token, got %d", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/snapshot", nil)
+	req.Header.Set("Authorization", "Bearer secret-token")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 with token, got %d", rec.Code)
+	}
+}
+
+func TestVersionEndpoint(t *testing.T) {
+	a := agent.New(config.Config{Interval: time.Second, HistorySize: 4}, noTrainingCollector{})
+	server := New(a)
+	req := httptest.NewRequest(http.MethodGet, "/v1/version", nil)
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["version"] == "" {
+		t.Fatal("version endpoint returned empty version")
 	}
 }
 

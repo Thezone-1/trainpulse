@@ -16,9 +16,14 @@ import (
 	"github.com/somoprovo/trainpulse/internal/config"
 	"github.com/somoprovo/trainpulse/internal/dashboard"
 	"github.com/somoprovo/trainpulse/internal/logging"
+	"github.com/somoprovo/trainpulse/internal/version"
 )
 
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "version" || os.Args[1] == "-version" || os.Args[1] == "--version") {
+		fmt.Printf("trainpulse %s (commit %s)\n", version.Version, version.Commit)
+		return
+	}
 	cfg, command, err := config.FromFlags(os.Args[1:])
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -39,7 +44,7 @@ func run(command string, cfg config.Config) error {
 	case "snapshot":
 		return runSnapshot(cfg)
 	default:
-		return fmt.Errorf("unknown command %q; use daemon, top, or snapshot", command)
+		return fmt.Errorf("unknown command %q; use daemon, top, snapshot, or version", command)
 	}
 }
 
@@ -49,11 +54,12 @@ func runDaemon(cfg config.Config) error {
 	logger := logging.New(cfg, os.Stdout)
 	col := chooseCollector(cfg)
 	a := agent.New(cfg, col)
+	a.SetLogger(logger)
 	server := &http.Server{Addr: cfg.Addr, Handler: api.New(a, cfg).Handler(), ReadHeaderTimeout: 2 * time.Second}
 	errc := make(chan error, 2)
 	go func() { errc <- a.Run(ctx) }()
 	go func() { errc <- server.ListenAndServe() }()
-	logger.Info("daemon_started", "addr", cfg.Addr, "collector", col.Name(), "mode", cfg.Mode)
+	logger.Info("daemon_started", "version", version.Version, "addr", cfg.Addr, "collector", col.Name(), "mode", cfg.Mode)
 	err := <-errc
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/somoprovo/trainpulse/internal/model"
@@ -24,6 +25,8 @@ func JSONPoints(snap model.Snapshot, namespace string) []Point {
 		{Metric: ns + ".health_score", Value: snap.Health, Type: "gauge"},
 		{Metric: ns + ".samples_total", Value: float64(snap.SampleCount), Type: "counter"},
 		{Metric: ns + ".signals_active", Value: float64(len(snap.Signals)), Type: "gauge"},
+		{Metric: ns + ".collect_errors_total", Value: float64(snap.CollectErrors), Type: "counter"},
+		{Metric: ns + ".simulated", Value: boolValue(snap.Simulated), Type: "gauge", Tags: collectorTags(snap.Collector)},
 	}
 	if tr := snap.Telemetry.Training; tr != nil {
 		tags := map[string]string{
@@ -68,12 +71,63 @@ func JSONPoints(snap model.Snapshot, namespace string) []Point {
 	return points
 }
 
-func WritePrometheus(w io.Writer, snap model.Snapshot, namespace string) error {
+// promSample is one value of a metric family: a label set plus a value.
+type promSample struct {
+	labels map[string]string
+	value  float64
+}
+
+// promFamily groups every sample that shares a metric name so the exposition
+// emits # HELP and # TYPE exactly once per family, as the Prometheus text
+// format requires. Emitting them per sample renders the scrape unparsable
+// whenever a family has more than one series (multiple GPUs, signals).
+type promFamily struct {
+	name    string
+	help    string
+	kind    string
+	samples []promSample
+}
+
+type promWriter struct {
+	order    []string
+	families map[string]*promFamily
+}
+
+func newPromWriter() *promWriter {
+	return &promWriter{families: map[string]*promFamily{}}
+}
+
+func (p *promWriter) add(name, help, kind string, value float64, labels map[string]string) {
+	family, ok := p.families[name]
+	if !ok {
+		family = &promFamily{name: name, help: help, kind: kind}
+		p.families[name] = family
+		p.order = append(p.order, name)
+	}
+	family.samples = append(family.samples, promSample{labels: labels, value: value})
+}
+
+func (p *promWriter) writeTo(w io.Writer) error {
 	var b bytes.Buffer
+	for _, name := range p.order {
+		family := p.families[name]
+		fmt.Fprintf(&b, "# HELP %s %s\n# TYPE %s %s\n", family.name, family.help, family.name, family.kind)
+		for _, sample := range family.samples {
+			fmt.Fprintf(&b, "%s%s %g\n", family.name, promLabels(sample.labels), sample.value)
+		}
+	}
+	_, err := w.Write(b.Bytes())
+	return err
+}
+
+func WritePrometheus(w io.Writer, snap model.Snapshot, namespace string) error {
 	ns := metricName(namespace)
-	writeMetric(&b, ns+"_health_score", "Training health score from 0 to 100.", snap.Health, nil)
-	writeMetric(&b, ns+"_samples_total", "Telemetry samples processed.", float64(snap.SampleCount), nil)
-	writeMetric(&b, ns+"_signals_active", "Active diagnostic signals.", float64(len(snap.Signals)), nil)
+	p := newPromWriter()
+	p.add(ns+"_health_score", "Training health score from 0 to 100.", "gauge", snap.Health, nil)
+	p.add(ns+"_samples_total", "Telemetry samples processed.", "counter", float64(snap.SampleCount), nil)
+	p.add(ns+"_signals_active", "Active diagnostic signals.", "gauge", float64(len(snap.Signals)), nil)
+	p.add(ns+"_collect_errors_total", "Telemetry collection failures.", "counter", float64(snap.CollectErrors), nil)
+	p.add(ns+"_simulated", "1 when telemetry comes from the simulator instead of real hardware.", "gauge", boolValue(snap.Simulated), collectorTags(snap.Collector))
 	if tr := snap.Telemetry.Training; tr != nil {
 		labels := map[string]string{
 			"workload_kind": tr.WorkloadKind,
@@ -81,29 +135,31 @@ func WritePrometheus(w io.Writer, snap model.Snapshot, namespace string) error {
 			"model_name":    tr.ModelName,
 			"framework":     tr.Framework,
 		}
-		writeMetric(&b, ns+"_training_step_time_ms", "Training step time in milliseconds.", tr.StepTimeMS, labels)
-		writeMetric(&b, ns+"_training_tokens_per_second", "Training token throughput.", tr.TokensPerSec, labels)
-		writeMetric(&b, ns+"_training_mfu", "Model FLOPs utilization, 0 to 1.", tr.MFU, labels)
-		writeMetric(&b, ns+"_training_tflops", "Achieved TFLOPs.", tr.TFLOPs, labels)
-		writeMetric(&b, ns+"_training_data_wait_ms", "Batch data wait time.", tr.DataWaitMS, labels)
-		writeMetric(&b, ns+"_training_tokenizer_wait_ms", "Tokenizer or packing wait time.", tr.TokenizerWaitMS, labels)
-		writeMetric(&b, ns+"_training_all_reduce_wait_ms", "All-reduce wait time.", tr.AllReduceWaitMS, labels)
+		p.add(ns+"_training_step_time_ms", "Training step time in milliseconds.", "gauge", tr.StepTimeMS, labels)
+		p.add(ns+"_training_tokens_per_second", "Training token throughput.", "gauge", tr.TokensPerSec, labels)
+		p.add(ns+"_training_mfu", "Model FLOPs utilization, 0 to 1.", "gauge", tr.MFU, labels)
+		p.add(ns+"_training_tflops", "Achieved TFLOPs.", "gauge", tr.TFLOPs, labels)
+		p.add(ns+"_training_data_wait_ms", "Batch data wait time.", "gauge", tr.DataWaitMS, labels)
+		p.add(ns+"_training_tokenizer_wait_ms", "Tokenizer or packing wait time.", "gauge", tr.TokenizerWaitMS, labels)
+		p.add(ns+"_training_all_reduce_wait_ms", "All-reduce wait time.", "gauge", tr.AllReduceWaitMS, labels)
+		p.add(ns+"_training_pipeline_bubble_ms", "Pipeline parallel idle time.", "gauge", tr.PipelineBubbleMS, labels)
+		p.add(ns+"_training_checkpoint_ms", "Checkpoint write time.", "gauge", tr.CheckpointMS, labels)
 	}
 	for _, gpu := range snap.Telemetry.GPUs {
 		labels := map[string]string{"gpu": fmt.Sprint(gpu.Index), "name": gpu.Name}
-		writeMetric(&b, ns+"_gpu_utilization_percent", "GPU utilization percentage.", gpu.Utilization, labels)
-		writeMetric(&b, ns+"_gpu_memory_used_mb", "GPU memory used in MiB.", float64(gpu.MemoryUsed), labels)
-		writeMetric(&b, ns+"_gpu_temperature_celsius", "GPU temperature.", gpu.Temperature, labels)
-		writeMetric(&b, ns+"_gpu_power_watts", "GPU power draw.", gpu.PowerWatts, labels)
+		p.add(ns+"_gpu_utilization_percent", "GPU utilization percentage.", "gauge", gpu.Utilization, labels)
+		p.add(ns+"_gpu_memory_used_mb", "GPU memory used in MiB.", "gauge", float64(gpu.MemoryUsed), labels)
+		p.add(ns+"_gpu_memory_total_mb", "GPU memory total in MiB.", "gauge", float64(gpu.MemoryTotal), labels)
+		p.add(ns+"_gpu_temperature_celsius", "GPU temperature.", "gauge", gpu.Temperature, labels)
+		p.add(ns+"_gpu_power_watts", "GPU power draw.", "gauge", gpu.PowerWatts, labels)
 	}
 	for _, signal := range snap.Signals {
-		writeMetric(&b, ns+"_signal_active", "Active signal by name and severity.", 1, map[string]string{
+		p.add(ns+"_signal_active", "Active signal by name and severity.", "gauge", 1, map[string]string{
 			"name":     signal.Name,
 			"severity": string(signal.Severity),
 		})
 	}
-	_, err := w.Write(b.Bytes())
-	return err
+	return p.writeTo(w)
 }
 
 func EncodeJSON(w io.Writer, snap model.Snapshot, namespace string) error {
@@ -113,25 +169,46 @@ func EncodeJSON(w io.Writer, snap model.Snapshot, namespace string) error {
 	})
 }
 
-func writeMetric(w io.Writer, name string, help string, value float64, labels map[string]string) {
-	fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s gauge\n%s%s %g\n", name, help, name, name, promLabels(labels), value)
+func boolValue(b bool) float64 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func collectorTags(name string) map[string]string {
+	if name == "" {
+		return nil
+	}
+	return map[string]string{"collector": name}
 }
 
 func promLabels(labels map[string]string) string {
 	if len(labels) == 0 {
 		return ""
 	}
-	parts := make([]string, 0, len(labels))
-	for k, v := range labels {
-		if v == "" {
+	keys := make([]string, 0, len(labels))
+	for k := range labels {
+		if labels[k] == "" {
 			continue
 		}
-		parts = append(parts, fmt.Sprintf(`%s="%s"`, metricName(k), strings.ReplaceAll(v, `"`, `\"`)))
+		keys = append(keys, k)
 	}
-	if len(parts) == 0 {
+	if len(keys) == 0 {
 		return ""
 	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf(`%s="%s"`, metricName(k), escapeLabel(labels[k])))
+	}
 	return "{" + strings.Join(parts, ",") + "}"
+}
+
+func escapeLabel(v string) string {
+	v = strings.ReplaceAll(v, `\`, `\\`)
+	v = strings.ReplaceAll(v, "\n", `\n`)
+	return strings.ReplaceAll(v, `"`, `\"`)
 }
 
 var invalidMetric = regexp.MustCompile(`[^a-zA-Z0-9_:]`)

@@ -18,6 +18,14 @@ TrainPulse is a lightweight Go daemon for predictive diagnostics of AI and LLM t
 go build ./cmd/trainpulse
 ```
 
+Release builds stamp the version into the binary:
+
+```sh
+make build        # version from git describe
+make release      # cross-compiled binaries in dist/
+./trainpulse version
+```
+
 ## Run
 
 Use simulation mode anywhere:
@@ -108,8 +116,37 @@ Supported adapter names today: `generic`, `pytorch`, `deepspeed`, `megatron`, `h
 - `daemon`: collect continuously and expose `/healthz` and `/v1/snapshot`.
 - `top`: collect and render a live terminal dashboard.
 - `snapshot`: collect once and print JSON.
+- `version`: print the build version and commit.
+
+## Reliability semantics
+
+- A failing collector never kills the daemon. Failed collections are logged,
+  counted in `collect_errors` (and `trainpulse_collect_errors_total`), and the
+  last good snapshot keeps being served with its `last_error` field set.
+- In `auto` mode, if `nvidia-smi` fails TrainPulse falls back to the simulator
+  and re-probes the real collector every 30 seconds. Snapshots always carry
+  `collector` and `simulated` fields — and the `trainpulse_simulated` metric —
+  so simulated telemetry can never masquerade as hardware data. Alert on
+  `trainpulse_simulated == 1` in production.
+- Training samples pushed to `/v1/training` are attached to telemetry frames
+  for 30 seconds after receipt (judged by the daemon's clock, so client clock
+  skew does not drop samples), then considered stale.
+
+## Security
+
+The API binds to `127.0.0.1` by default. If you expose it beyond localhost,
+set a bearer token; every endpoint except `/healthz` and `/v1/version` then
+requires `Authorization: Bearer <token>`:
+
+```sh
+./trainpulse daemon -addr 0.0.0.0:9876 -auth-token "$TRAINPULSE_TOKEN"
+```
+
+or `"auth_token": "..."` in the config file. POST bodies are capped at 1 MiB.
 
 ## Observability integrations
+
+TrainPulse does not replace alerting, dashboards, tracing, or experiment tracking. It emits training-aware metrics and diagnostic events that existing tools can consume.
 
 Prometheus/Grafana:
 
@@ -131,8 +168,19 @@ Grafana can use Prometheus as the data source and chart metrics such as:
 Datadog:
 
 - Use `/v1/metrics` from a Datadog Agent check, sidecar, or small forwarder.
+- Or scrape `/metrics` with the Datadog Agent OpenMetrics integration.
+- Use `/v1/events?format=ndjson` as structured diagnostic logs.
 - Each metric includes `metric`, `value`, `type`, and optional tags such as model, framework, GPU, signal name, and severity.
 - The JSON shape is intentionally simple so it can also feed OpenTelemetry collectors or internal agents.
+
+Other tools:
+
+- Elastic/Splunk/OpenObserve: ingest `/v1/events?format=ndjson`.
+- W&B/MLflow/Neptune/Comet/ClearML: log `/v1/metrics` and `/v1/events` as run metrics/artifacts.
+- Langfuse/LangSmith/Helicone/Phoenix/Braintrust: attach `/v1/events` as training-run context beside LLM traces and evals.
+- NVIDIA DCGM Exporter: keep it for raw GPU telemetry; use TrainPulse for training-aware diagnostics.
+
+See `docs/INTEGRATIONS.md` for the compatibility matrix.
 
 ## Configuration
 
@@ -151,6 +199,89 @@ Datadog:
 ```
 
 CLI flags override config file values.
+
+## User-defined rules
+
+Teams can tune TrainPulse without recompiling it. Add `rules` to the config file:
+
+```json
+{
+  "rules": [
+    {
+      "name": "team_low_mfu",
+      "field": "training.mfu",
+      "operator": "lt",
+      "value": 0.35,
+      "severity": "warning",
+      "score_impact": 12,
+      "description": "MFU is below the team-defined efficiency target"
+    }
+  ]
+}
+```
+
+Supported operators: `lt`, `lte`, `gt`, `gte`, `eq`, `neq`.
+
+Useful fields:
+
+- `training.tokens_per_sec`
+- `training.mfu`
+- `training.step_time_ms`
+- `training.data_wait_ms`
+- `training.tokenizer_wait_ms`
+- `training.all_reduce_wait_ms`
+- `training.pipeline_bubble_ms`
+- `training.checkpoint_ms`
+- `gpu.utilization`
+- `gpu.memory_used_ratio`
+- `gpu.temperature_c`
+- `host.load_1`
+
+## Diagnostic knowledge base
+
+Detected signals are turned into root-cause diagnoses by a data-driven
+knowledge base, not by compiled-in logic. The built-in knowledge base ships
+embedded in the binary (`internal/knowledge/default.json`), so out-of-the-box
+behavior is identical whether or not you provide a config file.
+
+Teams can extend or override any diagnosis without recompiling by adding
+`diagnoses` to the config file:
+
+```json
+{
+  "diagnoses": [
+    {
+      "root_cause": "dataloader_starvation",
+      "when_signals": ["dataloader_starvation"],
+      "confidence": 0.9,
+      "explanation": "GPUs are idling on input; our storage tier is the usual culprit.",
+      "actions": ["Increase dataloader workers", "Move the shard to the fast NVMe cache"]
+    },
+    {
+      "root_cause": "team_efficiency_breach",
+      "when_signals": ["custom_low_mfu"],
+      "confidence": 0.7,
+      "explanation": "MFU fell below the team-defined efficiency target set in rules.",
+      "actions": ["Check kernel fusion and precision mode", "Open an efficiency ticket"]
+    }
+  ]
+}
+```
+
+Semantics:
+
+- `when_signals`: which detected signal names trigger this diagnosis. These are
+  the built-in signal names (e.g. `dataloader_starvation`, `low_mfu`,
+  `rank_straggler`) or the `name` of any custom rule you defined under `rules`.
+- `match`: `any` (default) fires when at least one listed signal is active;
+  `all` requires every listed signal to be active.
+- An entry whose `root_cause` matches a built-in one **replaces it in place**;
+  a new `root_cause` is **appended** after the built-ins. Diagnoses are emitted
+  in knowledge-base order.
+
+This pairs with user-defined rules: a custom `rule` produces a signal, and a
+custom `diagnosis` turns that signal into an actionable root cause — the full
+detection-to-remediation path is configurable.
 
 ## LLM coverage
 

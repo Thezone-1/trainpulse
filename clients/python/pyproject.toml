@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trainpulse"
+version = "0.2.0"
+description = "Python client for the TrainPulse training diagnostics daemon: push training metrics, read health snapshots, and auto-apply safe optimization recommendations."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "Somoprovo Bhattacharjee" }]
+keywords = ["llm", "training", "monitoring", "gpu", "diagnostics", "mfu"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: System :: Monitoring",
+]
+
+[project.urls]
+Homepage = "https://github.com/somoprovo/trainpulse"
+
+[tool.setuptools.packages.find]
+where = ["src"]

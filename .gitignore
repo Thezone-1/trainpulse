@@ -2,3 +2,7 @@
 /trainpulse
 /trainpulse-*
 /.gocache/
+
+# Status and planning directories
+.status/
+.planning/

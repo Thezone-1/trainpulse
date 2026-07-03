@@ -5,5 +5,49 @@
   "history_size": 120,
   "log_level": "info",
   "log_format": "json",
-  "metrics_namespace": "trainpulse"
+  "metrics_namespace": "trainpulse",
+  "rules": [
+    {
+      "name": "custom_low_mfu",
+      "field": "training.mfu",
+      "operator": "lt",
+      "value": 0.35,
+      "severity": "warning",
+      "score_impact": 12,
+      "description": "MFU is below the team-defined efficiency target"
+    },
+    {
+      "name": "custom_high_allreduce",
+      "field": "training.all_reduce_wait_ms",
+      "operator": "gt",
+      "value": 75,
+      "severity": "critical",
+      "score_impact": 20,
+      "description": "All-reduce wait exceeded the configured SLO"
+    }
+  ],
+  "diagnoses": [
+    {
+      "root_cause": "dataloader_starvation",
+      "when_signals": ["dataloader_starvation"],
+      "confidence": 0.9,
+      "explanation": "GPUs are idling on input; our storage tier is the usual culprit.",
+      "actions": [
+        "Increase dataloader workers",
+        "Move the shard to the fast NVMe cache",
+        "Enable prefetching or pinned memory"
+      ]
+    },
+    {
+      "root_cause": "team_efficiency_breach",
+      "when_signals": ["custom_low_mfu"],
+      "confidence": 0.7,
+      "explanation": "MFU fell below the team-defined efficiency target set in rules.",
+      "actions": [
+        "Check kernel fusion and precision mode",
+        "Review sequence packing efficiency",
+        "Open an efficiency ticket for the run"
+      ]
+    }
+  ]
 }

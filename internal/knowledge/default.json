@@ -1,0 +1,169 @@
+{
+  "diagnoses": [
+    {
+      "root_cause": "dataloader_starvation",
+      "when_signals": ["dataloader_starvation"],
+      "confidence": 0.86,
+      "explanation": "GPU work is waiting on input batches instead of compute.",
+      "actions": [
+        "Increase dataloader workers",
+        "Check storage and network dataset latency",
+        "Enable prefetching or pinned memory"
+      ]
+    },
+    {
+      "root_cause": "distributed_sync_imbalance",
+      "when_signals": ["synchronization_imbalance"],
+      "confidence": 0.78,
+      "explanation": "Workers are progressing unevenly, which can stall collective synchronization.",
+      "actions": [
+        "Inspect per-rank step time",
+        "Check uneven batch shapes",
+        "Verify network fabric and NCCL logs"
+      ]
+    },
+    {
+      "root_cause": "thermal_throttling_risk",
+      "when_signals": ["thermal_instability"],
+      "confidence": 0.82,
+      "explanation": "GPU temperature is high enough to risk clock throttling and throughput loss.",
+      "actions": [
+        "Inspect fan and chassis airflow",
+        "Reduce power limit temporarily",
+        "Check neighboring GPU temperatures"
+      ]
+    },
+    {
+      "root_cause": "gpu_memory_pressure",
+      "when_signals": ["memory_pressure"],
+      "confidence": 0.74,
+      "explanation": "GPU memory occupancy is near the limit and may lead to fragmentation or allocation failure.",
+      "actions": [
+        "Review activation checkpointing",
+        "Lower batch size",
+        "Inspect allocator reserved versus allocated memory"
+      ]
+    },
+    {
+      "root_cause": "communication_bottleneck",
+      "when_signals": ["communication_bottleneck"],
+      "confidence": 0.72,
+      "explanation": "Training progress is being delayed by synchronization or communication waits.",
+      "actions": [
+        "Check interconnect counters",
+        "Tune bucket sizes",
+        "Verify compute and communication overlap"
+      ]
+    },
+    {
+      "root_cause": "llm_compute_efficiency_loss",
+      "when_signals": ["low_mfu"],
+      "confidence": 0.76,
+      "explanation": "Token throughput exists, but model FLOPs utilization is low for the observed training step.",
+      "actions": [
+        "Check kernel fusion and precision mode",
+        "Review sequence packing efficiency",
+        "Compare achieved TFLOPs with expected hardware peak"
+      ]
+    },
+    {
+      "root_cause": "tokenization_or_packing_bottleneck",
+      "when_signals": ["tokenizer_bottleneck"],
+      "confidence": 0.80,
+      "explanation": "The LLM input path is spending too much time tokenizing, packing, or preparing batches.",
+      "actions": [
+        "Pre-tokenize the dataset",
+        "Increase preprocessing workers",
+        "Inspect packing and shuffling latency"
+      ]
+    },
+    {
+      "root_cause": "distributed_gradient_communication",
+      "when_signals": ["allreduce_bottleneck"],
+      "confidence": 0.78,
+      "explanation": "Gradient synchronization is taking enough time to reduce useful training throughput.",
+      "actions": [
+        "Inspect NCCL logs and fabric counters",
+        "Tune gradient bucket size",
+        "Validate topology-aware rank placement"
+      ]
+    },
+    {
+      "root_cause": "rank_straggler",
+      "when_signals": ["rank_straggler"],
+      "confidence": 0.77,
+      "explanation": "A slow rank can force every other rank to wait at synchronization points.",
+      "actions": [
+        "Compare per-rank dataloader and step timing",
+        "Check node-local thermal or network issues",
+        "Inspect uneven sequence lengths per rank"
+      ]
+    },
+    {
+      "root_cause": "sequence_packing_inefficiency",
+      "when_signals": ["excessive_padding"],
+      "confidence": 0.73,
+      "explanation": "The job is spending compute on padding tokens rather than useful sequence tokens.",
+      "actions": [
+        "Use length bucketing",
+        "Improve packed sequence construction",
+        "Track useful tokens versus padded tokens"
+      ]
+    },
+    {
+      "root_cause": "checkpoint_io_stall",
+      "when_signals": ["checkpoint_stall"],
+      "confidence": 0.70,
+      "explanation": "Checkpoint writes are large enough to interrupt normal training cadence.",
+      "actions": [
+        "Checkpoint asynchronously",
+        "Increase checkpoint interval",
+        "Inspect filesystem and object-store latency"
+      ]
+    },
+    {
+      "root_cause": "gpu_underutilization",
+      "when_signals": ["gpu_underutilization"],
+      "confidence": 0.68,
+      "explanation": "GPU compute is idle for a large share of each step, so the job is not bound by the accelerator.",
+      "actions": [
+        "Profile the step to find CPU, IO, or launch-overhead gaps",
+        "Increase batch size or fuse small kernels",
+        "Check for host-side preprocessing on the critical path"
+      ]
+    },
+    {
+      "root_cause": "pipeline_parallel_bubble",
+      "when_signals": ["pipeline_bubble"],
+      "confidence": 0.72,
+      "explanation": "Pipeline stages are waiting on each other instead of computing, wasting accelerator time every step.",
+      "actions": [
+        "Increase microbatch count per pipeline flush",
+        "Rebalance layers across pipeline stages",
+        "Consider interleaved pipeline scheduling"
+      ]
+    },
+    {
+      "root_cause": "step_time_regression",
+      "when_signals": ["throughput_collapse", "token_throughput_collapse"],
+      "confidence": 0.71,
+      "explanation": "Throughput dropped sharply against the job's own recent history, which usually indicates a new external stall rather than model changes.",
+      "actions": [
+        "Compare current step against the last healthy window",
+        "Check for concurrent jobs, checkpoints, or evaluation runs",
+        "Inspect dataloader, network, and storage latency for regressions"
+      ]
+    },
+    {
+      "root_cause": "memory_bandwidth_bound",
+      "when_signals": ["memory_bandwidth_limit"],
+      "confidence": 0.69,
+      "explanation": "The workload is saturating GPU memory bandwidth, so more compute will not raise throughput until data movement shrinks.",
+      "actions": [
+        "Enable or verify kernel fusion to cut intermediate reads/writes",
+        "Review precision and activation checkpointing choices",
+        "Profile with a roofline model to confirm the bandwidth ceiling"
+      ]
+    }
+  ]
+}

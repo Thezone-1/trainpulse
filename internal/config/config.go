@@ -8,16 +8,46 @@ import (
 )
 
 type Config struct {
-	Addr             string        `json:"addr"`
-	Interval         time.Duration `json:"-"`
-	IntervalText     string        `json:"interval,omitempty"`
-	Mode             string        `json:"mode"`
-	TrainingSocket   string        `json:"training_socket,omitempty"`
-	HistorySize      int           `json:"history_size"`
-	ConfigPath       string        `json:"-"`
-	LogLevel         string        `json:"log_level"`
-	LogFormat        string        `json:"log_format"`
-	MetricsNamespace string        `json:"metrics_namespace"`
+	Addr             string          `json:"addr"`
+	Interval         time.Duration   `json:"-"`
+	IntervalText     string          `json:"interval,omitempty"`
+	Mode             string          `json:"mode"`
+	HistorySize      int             `json:"history_size"`
+	ConfigPath       string          `json:"-"`
+	LogLevel         string          `json:"log_level"`
+	LogFormat        string          `json:"log_format"`
+	MetricsNamespace string          `json:"metrics_namespace"`
+	AuthToken        string          `json:"auth_token,omitempty"`
+	Rules            []Rule          `json:"rules,omitempty"`
+	Diagnoses        []DiagnosisRule `json:"diagnoses,omitempty"`
+}
+
+type Rule struct {
+	Name        string  `json:"name"`
+	Field       string  `json:"field"`
+	Operator    string  `json:"operator"`
+	Value       float64 `json:"value"`
+	Severity    string  `json:"severity"`
+	ScoreImpact float64 `json:"score_impact"`
+	Description string  `json:"description,omitempty"`
+}
+
+// DiagnosisRule maps one or more detected signals to a root-cause diagnosis.
+// It is the data-driven form of what used to be hard-coded in the diagnostics
+// package. Teams can extend or override the built-in diagnostic knowledge base
+// by adding entries under "diagnoses" in the config file, without recompiling.
+//
+// Match controls how WhenSignals is evaluated: "any" (default) emits the
+// diagnosis when at least one listed signal is active; "all" requires every
+// listed signal to be active. An entry whose RootCause matches a built-in one
+// replaces it in place; a new RootCause is appended after the built-ins.
+type DiagnosisRule struct {
+	RootCause   string   `json:"root_cause"`
+	WhenSignals []string `json:"when_signals"`
+	Match       string   `json:"match,omitempty"`
+	Confidence  float64  `json:"confidence"`
+	Explanation string   `json:"explanation"`
+	Actions     []string `json:"actions"`
 }
 
 func FromFlags(args []string) (Config, string, error) {
@@ -42,8 +72,8 @@ func FromFlags(args []string) (Config, string, error) {
 	fs.StringVar(&cfg.Addr, "addr", cfg.Addr, "HTTP listen address for daemon stats")
 	fs.DurationVar(&cfg.Interval, "interval", cfg.Interval, "telemetry collection interval")
 	fs.StringVar(&cfg.Mode, "mode", cfg.Mode, "collector mode: auto, nvidia-smi, sim")
-	fs.StringVar(&cfg.TrainingSocket, "training-socket", cfg.TrainingSocket, "optional unix datagram socket for training runtime metrics")
 	fs.IntVar(&cfg.HistorySize, "history", cfg.HistorySize, "rolling sample history size")
+	fs.StringVar(&cfg.AuthToken, "auth-token", cfg.AuthToken, "optional bearer token required on all API endpoints except /healthz")
 	fs.StringVar(&cfg.ConfigPath, "config", cfg.ConfigPath, "path to JSON config file")
 	fs.StringVar(&cfg.LogLevel, "log-level", cfg.LogLevel, "log level: debug, info, warn, error")
 	fs.StringVar(&cfg.LogFormat, "log-format", cfg.LogFormat, "log format: json or text")

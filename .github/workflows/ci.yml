@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  go:
+    name: Go build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt needed on:" && echo "$unformatted" && exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test -race ./...
+      - name: go build
+        run: go build ./cmd/trainpulse
+
+  python-client:
+    name: Python client tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.8", "3.12"]
+    defaults:
+      run:
+        working-directory: clients/python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: unit tests
+        run: PYTHONPATH=src python -m unittest discover -s tests -v
+      - name: package builds
+        run: |
+          python -m pip install --quiet build
+          python -m build
